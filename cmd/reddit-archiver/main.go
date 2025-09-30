@@ -128,11 +128,5 @@ func main() {
 		}
 
 		log.Printf("Successfully archived r/%s", *subreddit)
-
-		// Show some stats
-		stats, err := store.GetPostStats(ctx, "")
-		if err == nil && stats != nil {
-			log.Printf("Total comments: %d, Max depth: %d", stats.CommentCount, stats.MaxCommentDepth)
-		}
 	}
 }

@@ -215,12 +215,12 @@ func (s *SQLiteStorage) GetPostsBySubreddit(ctx context.Context, subreddit strin
 	// Add date filters if provided
 	if !opts.StartDate.IsZero() {
 		query += " AND created_utc >= ?"
-		args = append(args, opts.StartDate)
+		args = append(args, timeToUnixFloat(opts.StartDate))
 	}
 
 	if !opts.EndDate.IsZero() {
 		query += " AND created_utc <= ?"
-		args = append(args, opts.EndDate)
+		args = append(args, timeToUnixFloat(opts.EndDate))
 	}
 
 	// Add sorting

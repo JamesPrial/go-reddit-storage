@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jamesprial/go-reddit-api-wrapper/pkg/types"
 	"github.com/jamesprial/go-reddit-storage"
@@ -42,16 +43,16 @@ func (s *PostgresStorage) SavePost(ctx context.Context, post *types.Post) error 
 			raw_json = EXCLUDED.raw_json
 	`
 
-	// Handle edited timestamp
-	var editedUTC interface{}
-	if post.Edited.IsEdited && post.Edited.Timestamp > 0 {
-		editedUTC = post.Edited.Timestamp
+	createdAt, _ := unixFloatToTime(post.CreatedUTC)
+	editedAt, hasEdited := unixFloatToTime(post.Edited.Timestamp)
+	if !post.Edited.IsEdited {
+		hasEdited = false
 	}
 
 	_, err = s.db.ExecContext(ctx, query,
 		post.ID, post.Subreddit, post.Author, post.Title,
 		post.SelfText, post.URL, post.Score, nil, // upvote_ratio not in API wrapper types.Post yet
-		post.NumComments, post.CreatedUTC, editedUTC,
+		post.NumComments, createdAt, timePtrOrNil(editedAt, hasEdited),
 		post.IsSelf, false, rawJSON, // is_video not in API wrapper types.Post yet
 	)
 
@@ -117,16 +118,16 @@ func (s *PostgresStorage) SavePosts(ctx context.Context, posts []*types.Post) er
 			return &storage.StorageError{Op: "marshal_post", Err: err}
 		}
 
-		// Handle edited timestamp
-		var editedUTC interface{}
-		if post.Edited.IsEdited && post.Edited.Timestamp > 0 {
-			editedUTC = post.Edited.Timestamp
+		createdAt, _ := unixFloatToTime(post.CreatedUTC)
+		editedAt, hasEdited := unixFloatToTime(post.Edited.Timestamp)
+		if !post.Edited.IsEdited {
+			hasEdited = false
 		}
 
 		_, err = stmt.ExecContext(ctx,
 			post.ID, post.Subreddit, post.Author, post.Title,
 			post.SelfText, post.URL, post.Score, nil, // upvote_ratio not in API wrapper types.Post yet
-			post.NumComments, post.CreatedUTC, editedUTC,
+			post.NumComments, createdAt, timePtrOrNil(editedAt, hasEdited),
 			post.IsSelf, false, rawJSON, // is_video not in API wrapper types.Post yet
 		)
 
@@ -156,18 +157,21 @@ func (s *PostgresStorage) GetPost(ctx context.Context, id string) (*types.Post, 
 
 	var upvoteRatio sql.NullFloat64
 	var isVideo bool
-	var editedUTC sql.NullFloat64
+	var createdAt time.Time
+	var editedUTC sql.NullTime
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&post.ID, &post.Subreddit, &post.Author, &post.Title,
 		&post.SelfText, &post.URL, &post.Score, &upvoteRatio,
-		&post.NumComments, &post.CreatedUTC, &editedUTC,
+		&post.NumComments, &createdAt, &editedUTC,
 		&post.IsSelf, &isVideo, &rawJSON,
 	)
 
+	post.CreatedUTC = timeToUnixFloat(createdAt)
+
 	// Reconstruct Edited field
 	if editedUTC.Valid {
-		post.Edited = types.Edited{IsEdited: true, Timestamp: editedUTC.Float64}
+		post.Edited = types.Edited{IsEdited: true, Timestamp: timeToUnixFloat(editedUTC.Time)}
 	} else {
 		post.Edited = types.Edited{IsEdited: false}
 	}

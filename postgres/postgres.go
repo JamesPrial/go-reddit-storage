@@ -41,10 +41,10 @@ type PoolConfig struct {
 // DefaultPoolConfig returns sensible defaults for production use
 func DefaultPoolConfig() *PoolConfig {
 	return &PoolConfig{
-		MaxOpenConns:    25,                // Reasonable limit for most applications
-		MaxIdleConns:    5,                 // Keep some connections ready
-		ConnMaxLifetime: 5 * time.Minute,   // Rotate connections periodically
-		ConnMaxIdleTime: 10 * time.Minute,  // Close idle connections after 10 minutes
+		MaxOpenConns:    25,               // Reasonable limit for most applications
+		MaxIdleConns:    5,                // Keep some connections ready
+		ConnMaxLifetime: 5 * time.Minute,  // Rotate connections periodically
+		ConnMaxIdleTime: 10 * time.Minute, // Close idle connections after 10 minutes
 	}
 }
 
@@ -196,7 +196,7 @@ func (s *PostgresStorage) GetPostStats(ctx context.Context, postID string) (*sto
 			JOIN comment_tree ct ON c.parent_id = ct.id
 		)
 		SELECT
-			COUNT(*) as comment_count,
+			COUNT(ct.id) as comment_count,
 			COALESCE(MAX(level), 0) as max_depth,
 			MAX(p.last_updated) as last_updated
 		FROM posts p
@@ -228,12 +228,13 @@ func (s *PostgresStorage) scanPosts(rows *sql.Rows) ([]*types.Post, error) {
 		var rawJSON []byte
 		var upvoteRatio sql.NullFloat64
 		var isVideo bool
-		var editedUTC sql.NullFloat64
+		var createdAt time.Time
+		var editedUTC sql.NullTime
 
 		err := rows.Scan(
 			&post.ID, &post.Subreddit, &post.Author, &post.Title,
 			&post.SelfText, &post.URL, &post.Score, &upvoteRatio,
-			&post.NumComments, &post.CreatedUTC, &editedUTC,
+			&post.NumComments, &createdAt, &editedUTC,
 			&post.IsSelf, &isVideo, &rawJSON,
 		)
 
@@ -241,9 +242,11 @@ func (s *PostgresStorage) scanPosts(rows *sql.Rows) ([]*types.Post, error) {
 			return nil, &storage.StorageError{Op: "scan_post", Err: err}
 		}
 
+		post.CreatedUTC = timeToUnixFloat(createdAt)
+
 		// Reconstruct Edited field
 		if editedUTC.Valid {
-			post.Edited = types.Edited{IsEdited: true, Timestamp: editedUTC.Float64}
+			post.Edited = types.Edited{IsEdited: true, Timestamp: timeToUnixFloat(editedUTC.Time)}
 		} else {
 			post.Edited = types.Edited{IsEdited: false}
 		}

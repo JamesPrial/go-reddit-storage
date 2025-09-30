@@ -241,6 +241,111 @@ func TestSQLiteStorage_GetPostsBySubreddit(t *testing.T) {
 	}
 }
 
+func TestSQLiteStorage_GetPostsBySubreddit_DateFilters(t *testing.T) {
+	store := getTestDB(t)
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Save subreddit
+	sub := &types.SubredditData{DisplayName: "daterange"}
+	if err := store.SaveSubreddit(ctx, sub); err != nil {
+		t.Fatalf("Failed to save subreddit: %v", err)
+	}
+
+	now := time.Now()
+	older := now.Add(-48 * time.Hour)
+	recent := now.Add(-1 * time.Hour)
+
+	posts := []*types.Post{
+		{
+			ThingData: types.ThingData{ID: "old", Name: "t3_old"},
+			Created:   types.Created{CreatedUTC: float64(older.Unix())},
+			Subreddit: "daterange",
+			Title:     "Old Post",
+		},
+		{
+			ThingData: types.ThingData{ID: "new", Name: "t3_new"},
+			Created:   types.Created{CreatedUTC: float64(recent.Unix())},
+			Subreddit: "daterange",
+			Title:     "New Post",
+		},
+	}
+
+	if err := store.SavePosts(ctx, posts); err != nil {
+		t.Fatalf("Failed to save posts: %v", err)
+	}
+
+	// Only the recent post should match the start date filter
+	startOpts := storage.QueryOptions{
+		StartDate: now.Add(-3 * time.Hour),
+		SortBy:    "created",
+		Limit:     10,
+	}
+
+	filtered, err := store.GetPostsBySubreddit(ctx, "daterange", startOpts)
+	if err != nil {
+		t.Fatalf("Failed to get posts with start date filter: %v", err)
+	}
+
+	if len(filtered) != 1 || filtered[0].ID != "new" {
+		t.Fatalf("Expected only the recent post, got %+v", filtered)
+	}
+
+	// Only the older post should match the end date filter
+	endOpts := storage.QueryOptions{
+		EndDate:   now.Add(-24 * time.Hour),
+		SortBy:    "created",
+		SortOrder: "asc",
+		Limit:     10,
+	}
+
+	filtered, err = store.GetPostsBySubreddit(ctx, "daterange", endOpts)
+	if err != nil {
+		t.Fatalf("Failed to get posts with end date filter: %v", err)
+	}
+
+	if len(filtered) != 1 || filtered[0].ID != "old" {
+		t.Fatalf("Expected only the older post, got %+v", filtered)
+	}
+}
+
+func TestSQLiteStorage_GetPostStats_NoComments(t *testing.T) {
+	store := getTestDB(t)
+	defer store.Close()
+
+	ctx := context.Background()
+
+	sub := &types.SubredditData{DisplayName: "stats"}
+	if err := store.SaveSubreddit(ctx, sub); err != nil {
+		t.Fatalf("Failed to save subreddit: %v", err)
+	}
+
+	post := &types.Post{
+		ThingData: types.ThingData{ID: "statspost", Name: "t3_statspost"},
+		Created:   types.Created{CreatedUTC: float64(time.Now().Unix())},
+		Subreddit: "stats",
+		Title:     "Stats Post",
+	}
+
+	if err := store.SavePost(ctx, post); err != nil {
+		t.Fatalf("Failed to save post: %v", err)
+	}
+
+	stats, err := store.GetPostStats(ctx, "statspost")
+	if err != nil {
+		t.Fatalf("Failed to get post stats: %v", err)
+	}
+
+	if stats.CommentCount != 0 {
+		t.Fatalf("Expected zero comments, got %d", stats.CommentCount)
+	}
+
+	if stats.MaxCommentDepth != 0 {
+		t.Fatalf("Expected zero max depth, got %d", stats.MaxCommentDepth)
+	}
+}
+
 func TestSQLiteStorage_SaveAndGetComments(t *testing.T) {
 	store := getTestDB(t)
 	defer store.Close()
@@ -267,21 +372,21 @@ func TestSQLiteStorage_SaveAndGetComments(t *testing.T) {
 	// Create comments
 	comments := []*types.Comment{
 		{
-			ThingData:  types.ThingData{ID: "comment1", Name: "t1_comment1"},
-			Created:    types.Created{CreatedUTC: float64(time.Now().Unix())},
-			LinkID:     "t3_post_with_comments",
-			Author:     "user1",
-			Body:       "Top level comment",
-			Score:      10,
+			ThingData: types.ThingData{ID: "comment1", Name: "t1_comment1"},
+			Created:   types.Created{CreatedUTC: float64(time.Now().Unix())},
+			LinkID:    "t3_post_with_comments",
+			Author:    "user1",
+			Body:      "Top level comment",
+			Score:     10,
 		},
 		{
-			ThingData:  types.ThingData{ID: "comment2", Name: "t1_comment2"},
-			Created:    types.Created{CreatedUTC: float64(time.Now().Add(1 * time.Minute).Unix())},
-			LinkID:     "t3_post_with_comments",
-			ParentID:   "t1_comment1",
-			Author:     "user2",
-			Body:       "Reply to comment1",
-			Score:      5,
+			ThingData: types.ThingData{ID: "comment2", Name: "t1_comment2"},
+			Created:   types.Created{CreatedUTC: float64(time.Now().Add(1 * time.Minute).Unix())},
+			LinkID:    "t3_post_with_comments",
+			ParentID:  "t1_comment1",
+			Author:    "user2",
+			Body:      "Reply to comment1",
+			Score:     5,
 		},
 	}
 

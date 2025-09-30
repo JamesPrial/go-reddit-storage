@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -160,7 +161,7 @@ func (s *SQLiteStorage) GetPostStats(ctx context.Context, postID string) (*stora
 			JOIN comment_tree ct ON c.parent_id = ct.id
 		)
 		SELECT
-			COUNT(*) as comment_count,
+			COUNT(ct.id) as comment_count,
 			COALESCE(MAX(level), 0) as max_depth,
 			MAX(p.last_updated) as last_updated
 		FROM posts p
@@ -172,12 +173,20 @@ func (s *SQLiteStorage) GetPostStats(ctx context.Context, postID string) (*stora
 	var stats storage.PostStats
 	stats.PostID = postID
 
+	var lastUpdated sql.NullString
+
 	err := s.db.QueryRowContext(ctx, query, postID, postID).Scan(
-		&stats.CommentCount, &stats.MaxCommentDepth, &stats.LastUpdated,
+		&stats.CommentCount, &stats.MaxCommentDepth, &lastUpdated,
 	)
 
 	if err != nil {
 		return nil, &storage.StorageError{Op: "get_post_stats", Err: err}
+	}
+
+	if lastUpdated.Valid {
+		if parsed, parseErr := time.Parse("2006-01-02 15:04:05", lastUpdated.String); parseErr == nil {
+			stats.LastUpdated = parsed
+		}
 	}
 
 	return &stats, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 
 	"github.com/jamesprial/go-reddit-api-wrapper/pkg/types"
 	"github.com/jamesprial/go-reddit-storage"
@@ -65,16 +66,16 @@ func (s *PostgresStorage) SaveComment(ctx context.Context, comment *types.Commen
 		}
 	}
 
-	// Handle edited timestamp
-	var editedUTC interface{}
-	if comment.Edited.IsEdited && comment.Edited.Timestamp > 0 {
-		editedUTC = comment.Edited.Timestamp
+	createdAt, _ := unixFloatToTime(comment.CreatedUTC)
+	editedAt, hasEdited := unixFloatToTime(comment.Edited.Timestamp)
+	if !comment.Edited.IsEdited {
+		hasEdited = false
 	}
 
 	_, err = s.db.ExecContext(ctx, query,
 		comment.ID, postID, parentID, comment.Author,
-		comment.Body, comment.Score, depth, comment.CreatedUTC,
-		editedUTC, rawJSON,
+		comment.Body, comment.Score, depth, createdAt,
+		timePtrOrNil(editedAt, hasEdited), rawJSON,
 	)
 
 	if err != nil {
@@ -195,16 +196,16 @@ func (s *PostgresStorage) SaveComments(ctx context.Context, comments []*types.Co
 		// Calculate proper depth
 		depth := calculateDepth(comment.ID)
 
-		// Handle edited timestamp
-		var editedUTC interface{}
-		if comment.Edited.IsEdited && comment.Edited.Timestamp > 0 {
-			editedUTC = comment.Edited.Timestamp
+		createdAt, _ := unixFloatToTime(comment.CreatedUTC)
+		editedAt, hasEdited := unixFloatToTime(comment.Edited.Timestamp)
+		if !comment.Edited.IsEdited {
+			hasEdited = false
 		}
 
 		_, err = stmt.ExecContext(ctx,
 			comment.ID, postID, parentID, comment.Author,
-			comment.Body, comment.Score, depth, comment.CreatedUTC,
-			editedUTC, rawJSON,
+			comment.Body, comment.Score, depth, createdAt,
+			timePtrOrNil(editedAt, hasEdited), rawJSON,
 		)
 
 		if err != nil {
@@ -261,17 +262,20 @@ func (s *PostgresStorage) GetCommentsByPost(ctx context.Context, postID string) 
 
 		var postIDRaw string
 		var depth int
-		var editedUTC sql.NullFloat64
+		var createdAt time.Time
+		var editedUTC sql.NullTime
 
 		err := rows.Scan(
 			&comment.ID, &postIDRaw, &parentID, &comment.Author,
-			&comment.Body, &comment.Score, &depth, &comment.CreatedUTC,
+			&comment.Body, &comment.Score, &depth, &createdAt,
 			&editedUTC, &rawJSON,
 		)
 
 		if err != nil {
 			return nil, &storage.StorageError{Op: "scan_comment", Err: err}
 		}
+
+		comment.CreatedUTC = timeToUnixFloat(createdAt)
 
 		// Reconstruct fullnames with prefixes
 		comment.LinkID = "t3_" + postIDRaw
@@ -284,7 +288,7 @@ func (s *PostgresStorage) GetCommentsByPost(ctx context.Context, postID string) 
 
 		// Reconstruct Edited field
 		if editedUTC.Valid {
-			comment.Edited = types.Edited{IsEdited: true, Timestamp: editedUTC.Float64}
+			comment.Edited = types.Edited{IsEdited: true, Timestamp: timeToUnixFloat(editedUTC.Time)}
 		} else {
 			comment.Edited = types.Edited{IsEdited: false}
 		}
