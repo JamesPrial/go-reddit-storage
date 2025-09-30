@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	_ "github.com/lib/pq"
 
@@ -18,11 +19,53 @@ type PostgresStorage struct {
 	db *sql.DB
 }
 
-// New creates a new PostgreSQL storage instance
+// PoolConfig configures the PostgreSQL connection pool
+type PoolConfig struct {
+	// MaxOpenConns sets the maximum number of open connections to the database
+	// Default: 0 (unlimited)
+	MaxOpenConns int
+
+	// MaxIdleConns sets the maximum number of connections in the idle connection pool
+	// Default: 2
+	MaxIdleConns int
+
+	// ConnMaxLifetime sets the maximum amount of time a connection may be reused
+	// Default: 0 (connections are reused forever)
+	ConnMaxLifetime time.Duration
+
+	// ConnMaxIdleTime sets the maximum amount of time a connection may be idle
+	// Default: 0 (connections are not closed due to idle time)
+	ConnMaxIdleTime time.Duration
+}
+
+// DefaultPoolConfig returns sensible defaults for production use
+func DefaultPoolConfig() *PoolConfig {
+	return &PoolConfig{
+		MaxOpenConns:    25,                // Reasonable limit for most applications
+		MaxIdleConns:    5,                 // Keep some connections ready
+		ConnMaxLifetime: 5 * time.Minute,   // Rotate connections periodically
+		ConnMaxIdleTime: 10 * time.Minute,  // Close idle connections after 10 minutes
+	}
+}
+
+// New creates a new PostgreSQL storage instance with default pool configuration
 func New(connString string) (*PostgresStorage, error) {
+	return NewWithPool(connString, DefaultPoolConfig())
+}
+
+// NewWithPool creates a new PostgreSQL storage instance with custom pool configuration
+func NewWithPool(connString string, config *PoolConfig) (*PostgresStorage, error) {
 	db, err := sql.Open("postgres", connString)
 	if err != nil {
 		return nil, &storage.StorageError{Op: "open", Err: err}
+	}
+
+	// Apply pool configuration
+	if config != nil {
+		db.SetMaxOpenConns(config.MaxOpenConns)
+		db.SetMaxIdleConns(config.MaxIdleConns)
+		db.SetConnMaxLifetime(config.ConnMaxLifetime)
+		db.SetConnMaxIdleTime(config.ConnMaxIdleTime)
 	}
 
 	if err := db.Ping(); err != nil {

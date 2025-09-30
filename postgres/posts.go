@@ -50,9 +50,9 @@ func (s *PostgresStorage) SavePost(ctx context.Context, post *types.Post) error 
 
 	_, err = s.db.ExecContext(ctx, query,
 		post.ID, post.Subreddit, post.Author, post.Title,
-		post.SelfText, post.URL, post.Score, nil, // upvote_ratio not available
+		post.SelfText, post.URL, post.Score, nil, // upvote_ratio not in API wrapper types.Post yet
 		post.NumComments, post.CreatedUTC, editedUTC,
-		post.IsSelf, false, rawJSON, // is_video not available
+		post.IsSelf, false, rawJSON, // is_video not in API wrapper types.Post yet
 	)
 
 	if err != nil {
@@ -125,9 +125,9 @@ func (s *PostgresStorage) SavePosts(ctx context.Context, posts []*types.Post) er
 
 		_, err = stmt.ExecContext(ctx,
 			post.ID, post.Subreddit, post.Author, post.Title,
-			post.SelfText, post.URL, post.Score, nil, // upvote_ratio not available
+			post.SelfText, post.URL, post.Score, nil, // upvote_ratio not in API wrapper types.Post yet
 			post.NumComments, post.CreatedUTC, editedUTC,
-			post.IsSelf, false, rawJSON, // is_video not available
+			post.IsSelf, false, rawJSON, // is_video not in API wrapper types.Post yet
 		)
 
 		if err != nil {

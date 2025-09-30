@@ -52,10 +52,17 @@ func (s *SQLiteStorage) SaveComment(ctx context.Context, comment *types.Comment)
 		postID = postID[3:]
 	}
 
-	// Calculate depth
+	// Calculate depth by querying parent if it exists
 	depth := 0
 	if parentID != nil {
-		depth = 1
+		var parentDepth sql.NullInt64
+		err := s.db.QueryRowContext(ctx, "SELECT depth FROM comments WHERE id = ?", parentID).Scan(&parentDepth)
+		if err == nil && parentDepth.Valid {
+			depth = int(parentDepth.Int64) + 1
+		} else {
+			// If parent not found, assume depth 1 (direct reply to post)
+			depth = 1
+		}
 	}
 
 	// Handle edited timestamp
@@ -89,6 +96,54 @@ func (s *SQLiteStorage) SaveComments(ctx context.Context, comments []*types.Comm
 	}
 	defer tx.Rollback()
 
+	// Build a map of comment ID to parent ID for depth calculation
+	commentMap := make(map[string]string) // commentID -> parentID (stripped)
+	for _, comment := range comments {
+		var parentID string
+		if comment.ParentID != "" && comment.ParentID != comment.LinkID {
+			// Strip "t1_" prefix from parent comment IDs
+			if len(comment.ParentID) > 3 && comment.ParentID[:3] == "t1_" {
+				parentID = comment.ParentID[3:]
+			} else {
+				parentID = comment.ParentID
+			}
+		}
+		commentMap[comment.ID] = parentID
+	}
+
+	// Function to calculate depth by recursively following parent chain
+	depthCache := make(map[string]int)
+	var calculateDepth func(commentID string) int
+	calculateDepth = func(commentID string) int {
+		// Check cache first
+		if depth, ok := depthCache[commentID]; ok {
+			return depth
+		}
+
+		parentID, exists := commentMap[commentID]
+		if !exists || parentID == "" {
+			// Top-level comment or parent not in this batch
+			// Query database for parent depth if parent exists
+			if parentID != "" {
+				var parentDepth sql.NullInt64
+				err := tx.QueryRowContext(ctx, "SELECT depth FROM comments WHERE id = ?", parentID).Scan(&parentDepth)
+				if err == nil && parentDepth.Valid {
+					depth := int(parentDepth.Int64) + 1
+					depthCache[commentID] = depth
+					return depth
+				}
+			}
+			// Assume top-level if parent not found
+			depthCache[commentID] = 0
+			return 0
+		}
+
+		// Parent is in this batch, calculate recursively
+		depth := calculateDepth(parentID) + 1
+		depthCache[commentID] = depth
+		return depth
+	}
+
 	query := `
 		INSERT INTO comments (
 			id, post_id, parent_id, author, body, score,
@@ -100,6 +155,7 @@ func (s *SQLiteStorage) SaveComments(ctx context.Context, comments []*types.Comm
 			score = excluded.score,
 			body = excluded.body,
 			edited_utc = excluded.edited_utc,
+			depth = excluded.depth,
 			last_updated = CURRENT_TIMESTAMP,
 			raw_json = excluded.raw_json
 	`
@@ -136,11 +192,8 @@ func (s *SQLiteStorage) SaveComments(ctx context.Context, comments []*types.Comm
 			postID = postID[3:]
 		}
 
-		// Calculate depth
-		depth := 0
-		if parentID != nil {
-			depth = 1
-		}
+		// Calculate proper depth
+		depth := calculateDepth(comment.ID)
 
 		// Handle edited timestamp
 		var editedUTC interface{}
