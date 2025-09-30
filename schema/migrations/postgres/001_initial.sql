@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS subreddits (
 -- Posts table
 CREATE TABLE IF NOT EXISTS posts (
     id TEXT PRIMARY KEY,
-    subreddit TEXT NOT NULL REFERENCES subreddits(name),
+    subreddit TEXT NOT NULL REFERENCES subreddits(name) ON DELETE CASCADE,
     author TEXT,
     title TEXT NOT NULL,
     selftext TEXT,
@@ -27,16 +27,14 @@ CREATE TABLE IF NOT EXISTS posts (
     is_video BOOLEAN DEFAULT false,
     archived_at TIMESTAMP DEFAULT NOW(),
     last_updated TIMESTAMP DEFAULT NOW(),
-    raw_json JSONB,
-    CONSTRAINT posts_subreddit_fkey FOREIGN KEY (subreddit)
-        REFERENCES subreddits(name) ON DELETE CASCADE
+    raw_json JSONB
 );
 
 -- Comments table
 CREATE TABLE IF NOT EXISTS comments (
     id TEXT PRIMARY KEY,
     post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-    parent_id TEXT,
+    parent_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
     author TEXT,
     body TEXT,
     score INTEGER DEFAULT 0,
@@ -45,9 +43,7 @@ CREATE TABLE IF NOT EXISTS comments (
     edited_utc TIMESTAMP,
     archived_at TIMESTAMP DEFAULT NOW(),
     last_updated TIMESTAMP DEFAULT NOW(),
-    raw_json JSONB,
-    CONSTRAINT comments_parent_fkey FOREIGN KEY (parent_id)
-        REFERENCES comments(id) ON DELETE CASCADE
+    raw_json JSONB
 );
 
 -- Archive metadata for tracking sync state
