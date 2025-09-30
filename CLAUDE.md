@@ -130,3 +130,4 @@ The codebase uses `StorageError` type ([storage.go](storage.go:56)) for all stor
 - SQLite uses WAL mode for better concurrency (enabled automatically)
 - The CLI tool reads credentials from environment variables (never hardcode)
 - Comment depth is stored denormalized for query performance
+- Always commit to git after finishing anything
